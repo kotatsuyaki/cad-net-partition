@@ -6,7 +6,7 @@ main
 .direnv
 result
 
-pa1
+pa2
 compile_commands.json
 
 out
