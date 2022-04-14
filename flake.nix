@@ -19,12 +19,12 @@
           gdb
         ];
         cad = pkgs.stdenv.mkDerivation {
-          name = "cad-pa-1";
+          name = "cad-pa-2";
           src = ./.;
           buildInputs = deps;
           installPhase = ''
             mkdir -p $out/bin
-            cp pa1 $out/bin/cad-pa-1
+            cp pa2 $out/bin/cad-pa-2
           '';
         };
       in
