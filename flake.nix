@@ -18,7 +18,7 @@
           clang-tools
           gdb
         ];
-        cad = pkgs.stdenv.mkDerivation {
+        cad = pkgs.pkgsStatic.stdenv.mkDerivation {
           name = "cad-pa-2";
           src = ./.;
           buildInputs = deps;
