@@ -9,12 +9,12 @@
       let
         pkgs = import nixpkgs { inherit system; };
         deps = with pkgs; [
-          gcc
+          clang_14
           gnumake
+          cmake
         ];
         dev-deps = with pkgs; [
           rnix-lsp
-          bear
           clang-tools
           gdb
         ];
@@ -22,6 +22,7 @@
           name = "cad-pa-2";
           src = ./.;
           buildInputs = deps;
+          nativeBuildInputs = [ pkgs.cmake ];
           installPhase = ''
             mkdir -p $out/bin
             cp pa2 $out/bin/cad-pa-2
@@ -33,6 +34,7 @@
         defaultPackage = self.packages."${system}".cad;
         devShell = with pkgs; mkShell {
           buildInputs = deps ++ dev-deps;
+          CMAKE_EXPORT_COMPILE_COMMANDS = "yes";
         };
       });
 }

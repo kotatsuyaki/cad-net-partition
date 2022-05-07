@@ -7,7 +7,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v15
-      - run: nix build .#
+      - run: nix build "git+file://$PWD?submodules=1&shallow=1"
       - run: echo "RESULT=$(readlink -f result)" >> $GITHUB_ENV
       - uses: actions/upload-artifact@v3
         with:

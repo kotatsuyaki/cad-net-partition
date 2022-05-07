@@ -11,7 +11,8 @@ SRCS := $(shell find $(SRC_DIRS) -name *.cpp)
 OBJS := $(addsuffix .o,$(basename $(SRCS)))
 DEPS := $(OBJS:.o=.d)
 
-INC_DIRS := $(shell find $(SRC_DIRS) -type d)
+# Add all subdirectories with name "include" in ./external to include path
+INC_DIRS := $(shell find ./external -type d -name include)
 INC_FLAGS := $(addprefix -I,$(INC_DIRS))
 
 CPPFLAGS ?= $(INC_FLAGS) -MMD -MP

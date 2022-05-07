@@ -1,0 +1,25 @@
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
+project(pa2 VERSION 1.0)
+
+add_executable(pa2 ./src/main.cpp)
+set_property(TARGET pa2 PROPERTY CXX_STANDARD 17)
+
+# External libs
+include_directories(
+  external/GSL/include
+  external/fmt/include
+  external/range-v3/include
+)
+
+# Linux-specific options
+if(NOT WIN32)
+  add_compile_options(-Wall -Wextra)
+  install(TARGETS pa2 DESTINATION bin)
+endif()
+
+# Export compile commands for clangd
+if(DEFINED ENV{CMAKE_EXPORT_COMPILE_COMMANDS})
+  message(STATUS "Exporting compile commands")
+  set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
+  set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
+endif()
