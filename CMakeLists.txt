@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 project(pa2 VERSION 1.0)
 
-add_executable(pa2 ./src/main.cpp)
+add_executable(pa2 ./src/main.cpp ./src/io.cpp)
 set_property(TARGET pa2 PROPERTY CXX_STANDARD 17)
 
 # External libs
@@ -9,6 +9,7 @@ include_directories(
   external/GSL/include
   external/fmt/include
   external/range-v3/include
+  external/parallel-hashmap
 )
 
 # Linux-specific options

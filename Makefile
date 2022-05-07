@@ -12,7 +12,7 @@ OBJS := $(addsuffix .o,$(basename $(SRCS)))
 DEPS := $(OBJS:.o=.d)
 
 # Add all subdirectories with name "include" in ./external to include path
-INC_DIRS := $(shell find ./external -type d -name include)
+INC_DIRS := $(shell find ./external -type d -name include) ./external/parallel-hashmap
 INC_FLAGS := $(addprefix -I,$(INC_DIRS))
 
 CPPFLAGS ?= $(INC_FLAGS) -MMD -MP
