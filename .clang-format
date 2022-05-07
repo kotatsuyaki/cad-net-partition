@@ -1,1 +1,8 @@
 BasedOnStyle: Google
+IncludeCategories:
+  - Regex:           '^<[a-z_]*>'
+    Priority:        2
+  - Regex:           '^<.*>'
+    Priority:        1
+  - Regex:           '.*'
+    Priority:        0
