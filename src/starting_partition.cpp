@@ -30,8 +30,7 @@ vector<size_t> indexes_with_min_area(const vector<Group>& groups) {
   const size_t min_group_area = ranges::min_element(groups)->area;
 
   const auto has_min_area = [min_group_area](const auto& p) {
-    const auto& [i, g] = p;
-    return g.area == min_group_area;
+    return p.second.area == min_group_area;
   };
   return groups | enumerate | filter(has_min_area) | transform(first) |
          to<vector<size_t>>();
