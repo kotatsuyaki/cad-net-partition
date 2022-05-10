@@ -15,16 +15,19 @@
 #include <stdexcept>
 
 using ranges::views::enumerate;
+using std::ifstream;
+using std::string;
+using std::vector;
 
 int main(int argc, char** argv) try {
   assert(argc >= 2);
-  std::ifstream infile(argv[1]);
+  ifstream infile(argv[1]);  // NOLINT
 
   const InputData inputs = InputData::read_from(infile);
 
   inputs.debug_print();
 
-  const std::vector<Group> groups = find_starting_partition(inputs);
+  const vector<Group> groups = find_starting_partition(inputs);
 
   for (const auto& [i, group] : groups | enumerate) {
     fmt::print("Group {} (area = {}) contains cells: {}\n", i, group.area,

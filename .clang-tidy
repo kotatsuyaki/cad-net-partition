@@ -1,1 +1,1 @@
-Checks: '-*,clang-diagnostic-*,clang-analyzer-*,cppcoreguidelines-*,-cppcoreguidelines-pro-*,bugprone-*'
+Checks: '-*,clang-diagnostic-*,clang-analyzer-*,cppcoreguidelines-*,bugprone-*'
