@@ -6,6 +6,7 @@ add_executable(
     ./src/main.cpp
     ./src/data.cpp
     ./src/starting_partition.cpp
+    ./src/cost.cpp
 )
 set_property(TARGET pa2 PROPERTY CXX_STANDARD 17)
 

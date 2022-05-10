@@ -9,6 +9,7 @@
 #include <vector>
 
 using Net = phmap::flat_hash_set<size_t>;
+using Cell = phmap::flat_hash_set<size_t>;
 
 struct InputData {
   static InputData read_from(std::istream& is) noexcept(false);
@@ -25,6 +26,9 @@ struct InputData {
 
   // Hyperedges, indexed by net numbers
   std::vector<Net> nets;
+
+  // Mapping from cell index to net indices
+  std::vector<Cell> cells;
 
   size_t total_area = 0;
 };

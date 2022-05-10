@@ -47,16 +47,18 @@ void InputData::read(istream& is) noexcept(false) {
 
   is >> nnets;
   nets.resize(nnets);
+  cells.resize(ncells);
 
-  // `i` is the index of net
-  for (size_t i = 0; i < nnets; i += 1) {
+  // `net` is the index of net
+  for (size_t net = 0; net < nnets; net += 1) {
     size_t ncells_contained = 0;
     is >> ncells_contained;
 
-    for (size_t j = 0; j < ncells_contained; j += 1) {
+    for (size_t i = 0; i < ncells_contained; i += 1) {
       size_t cell = 0;
       is >> cell;
-      nets[i].insert(cell);
+      nets.at(net).insert(cell);
+      cells.at(cell).insert(net);
     }
   }
 

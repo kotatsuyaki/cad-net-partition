@@ -1,3 +1,4 @@
+#include "cost.hpp"
 #include "data.hpp"
 #include "starting_partition.hpp"
 
@@ -23,13 +24,14 @@ int main(int argc, char** argv) try {
 
   inputs.debug_print();
 
-  // Calculate minimum number of groups needed
-  const auto groups = find_starting_partition(inputs);
+  const std::vector<Group> groups = find_starting_partition(inputs);
 
   for (const auto& [i, group] : groups | enumerate) {
     fmt::print("Group {} (area = {}) contains cells: {}\n", i, group.area,
                fmt::join(group.cells, ", "));
   }
+
+  fmt::print("Cost of starting partition = {}\n", find_cost(groups, inputs));
 
   return 0;
 } catch (const std::exception& e) {
