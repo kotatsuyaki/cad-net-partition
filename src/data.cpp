@@ -1,13 +1,14 @@
-#include "io.hpp"
+#include "data.hpp"
 
+#include <range/v3/all.hpp>
+
+#include <cmath>
 #include <stdexcept>
 
 using std::istream;
 using std::string;
 
-InputData::InputData() = default;
-
-InputData InputData::read_from(istream& is) noexcept(false) {
+InputData InputData::read_from(std::istream& is) noexcept(false) {
   InputData data;
   data.read(is);
   return data;
@@ -16,6 +17,9 @@ InputData InputData::read_from(istream& is) noexcept(false) {
 void InputData::read(istream& is) noexcept(false) {
   // enable exceptions on input errors
   is.exceptions(std::istream::failbit | std::istream::badbit);
+
+  cell_areas.clear();
+  nets.clear();
 
   string ignore_word;
 
@@ -52,5 +56,13 @@ void InputData::read(istream& is) noexcept(false) {
     }
   }
 
+  // Calculate total area
+  total_area = ranges::accumulate(cell_areas, 0);
+
   return;
+}
+
+size_t InputData::min_number_of_groups() const {
+  return std::ceil(static_cast<double>(total_area) /
+                   static_cast<double>(max_group_area));
 }
