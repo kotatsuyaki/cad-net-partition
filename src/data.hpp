@@ -1,6 +1,8 @@
 #ifndef DATA_HPP_
 #define DATA_HPP_
 
+#define FMT_HEADER_ONLY
+#include <fmt/format.h>
 #include <parallel_hashmap/phmap.h>
 
 #include <istream>
@@ -12,6 +14,7 @@ struct InputData {
   static InputData read_from(std::istream& is) noexcept(false);
   void read(std::istream& is) noexcept(false);
   size_t min_number_of_groups() const;
+  void debug_print() const;
 
   size_t max_group_area = 0;
   size_t ncells = 0;
@@ -24,6 +27,30 @@ struct InputData {
   std::vector<Net> nets;
 
   size_t total_area = 0;
+};
+
+#include <fmt/format.h>
+
+struct point {
+  double x, y;
+};
+
+template <>
+struct fmt::formatter<InputData> {
+  constexpr auto parse(format_parse_context& ctx) -> decltype(ctx.begin()) {
+    auto it = ctx.begin(), end = ctx.end();
+    if (it != end) it++;
+    if (it != end && *it != '}') throw format_error("invalid format");
+    return it;
+  }
+
+  template <typename FormatContext>
+  auto format(const InputData& inputs, FormatContext& ctx)
+      -> decltype(ctx.out()) {
+    return format_to(ctx.out(),
+                     "InputData({} cells, {} nets, max group area {})",
+                     inputs.ncells, inputs.nnets, inputs.max_group_area);
+  }
 };
 
 struct Group {

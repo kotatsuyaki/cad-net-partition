@@ -8,6 +8,10 @@
 using std::istream;
 using std::string;
 
+using ranges::to;
+using ranges::actions::sort;
+using ranges::views::enumerate;
+
 InputData InputData::read_from(std::istream& is) noexcept(false) {
   InputData data;
   data.read(is);
@@ -16,7 +20,7 @@ InputData InputData::read_from(std::istream& is) noexcept(false) {
 
 void InputData::read(istream& is) noexcept(false) {
   // enable exceptions on input errors
-  is.exceptions(std::istream::failbit | std::istream::badbit);
+  is.exceptions(istream::failbit | istream::badbit);
 
   cell_areas.clear();
   nets.clear();
@@ -65,4 +69,13 @@ void InputData::read(istream& is) noexcept(false) {
 size_t InputData::min_number_of_groups() const {
   return std::ceil(static_cast<double>(total_area) /
                    static_cast<double>(max_group_area));
+}
+
+void InputData::debug_print() const {
+  fmt::print("{}\n", *this);
+  fmt::print("Cell areas: {}\n", fmt::join(cell_areas, ", "));
+  for (const auto& [i, net] : nets | enumerate) {
+    fmt::print("Net {} contains cells: {}\n", i,
+               fmt::join(net | to<std::vector>() | sort, ", "));
+  }
 }
