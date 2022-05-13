@@ -1,1 +1,1 @@
-Checks: '-*,clang-diagnostic-*,clang-analyzer-*,cppcoreguidelines-*,bugprone-*'
+Checks: '-*,clang-diagnostic-*,clang-analyzer-*,cppcoreguidelines-*,bugprone-*,-cppcoreguidelines-pro-bounds-array-to-pointer-decay,-bugprone-easily-swappable-parameters'

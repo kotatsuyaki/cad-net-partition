@@ -11,13 +11,13 @@ using ranges::views::enumerate;
 using ranges::views::transform;
 using std::vector;
 
-size_t find_cost(const vector<Group>& groups, const InputData& inputs) {
+size_t find_cost(const vector<Block>& blocks, const InputData& inputs) {
   vector<flat_hash_set<size_t>> spans(inputs.nnets);
 
-  for (const auto& [gi, group] : groups | enumerate) {
-    for (size_t c : group.cells) {
-      for (size_t net : inputs.cells.at(c)) {
-        spans.at(net).insert(gi);
+  for (const auto& [block_id, block] : blocks | enumerate) {
+    for (size_t cell_id : block.cells) {
+      for (size_t net_id : inputs.cells.at(cell_id)) {
+        spans.at(net_id).insert(block_id);
       }
     }
   }

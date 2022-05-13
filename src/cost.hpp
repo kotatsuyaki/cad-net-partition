@@ -5,6 +5,6 @@
 
 #include <vector>
 
-size_t find_cost(const std::vector<Group>& groups, const InputData& inputs);
+size_t find_cost(const std::vector<Block>& blocks, const InputData& inputs);
 
 #endif  // COST_HPP_

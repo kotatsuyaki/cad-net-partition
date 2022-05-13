@@ -3,10 +3,12 @@ project(pa2 VERSION 1.0)
 
 add_executable(
     pa2
-    ./src/main.cpp
-    ./src/data.cpp
-    ./src/starting_partition.cpp
+    ./src/config.cpp
     ./src/cost.cpp
+    ./src/data.cpp
+    ./src/main.cpp
+    ./src/partition.cpp
+    ./src/starting_partition.cpp
 )
 set_property(TARGET pa2 PROPERTY CXX_STANDARD 17)
 

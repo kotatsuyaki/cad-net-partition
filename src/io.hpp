@@ -12,7 +12,7 @@ class InputData {
  public:
   static InputData read_from(std::istream& is) noexcept(false);
 
-  size_t max_group_area = 0;
+  size_t max_block_area = 0;
   size_t ncells = 0;
   size_t nnets = 0;
 
