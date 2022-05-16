@@ -33,7 +33,7 @@ using set = phmap::flat_hash_set<T>;
 namespace {
 
 constexpr size_t infty = std::numeric_limits<int>::max();
-constexpr size_t max_level = 2;
+constexpr int max_level = 2;
 
 // Storage for phi, lambda, and beta values.
 // Indexed by net and block.
@@ -442,7 +442,7 @@ class Cutter {
 
   optional<Move> find_nextmove() const {
     for (const auto& entry : gain_table) {
-      for (const auto [cell_id, to_block_id] : entry) {
+      for (const auto& [cell_id, to_block_id] : entry) {
         // check if cell is locked
         if (cell_locked[cell_id]) {
           continue;
