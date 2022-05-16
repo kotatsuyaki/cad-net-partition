@@ -4,6 +4,7 @@
 #include <range/v3/all.hpp>
 
 #include <algorithm>
+#include <random>
 
 using ranges::to;
 using ranges::views::enumerate;
@@ -16,12 +17,22 @@ using std::vector;
 
 namespace {
 
-// Samples a vector element at random and returns by value.
-template <typename T>
-T sample(const vector<T>& vec) {
-  Expects(vec.empty() == false);
-  return *(vec | ranges::views::sample(1)).begin();
-}
+constexpr int seed = 42;
+
+// Deterministic random sampler.
+struct Random {
+  Random() : gen(seed) {}
+
+  // Samples a vector element at random and returns by value.
+  template <typename T>
+  T sample(const std::vector<T>& data) {
+    std::uniform_int_distribution<> dis(
+        0, std::distance(data.begin(), data.end()) - 1);
+    return *std::next(data.begin(), dis(gen));
+  }
+
+  std::mt19937 gen;
+};
 
 // Gets first element out of an (index, block) pair.
 decltype(auto) first(pair<size_t, const Block&> p) { return p.first; }
@@ -43,12 +54,13 @@ vector<size_t> indexes_with_min_area(const vector<Block>& blocks) {
 optional<vector<Block>> find_starting_partition(const InputData& inputs,
                                                 size_t nblocks) {
   vector<Block> blocks(nblocks);
+  Random random{};
 
   for (size_t i = 0; i < inputs.ncells; i += 1) {
     const auto indexes = indexes_with_min_area(blocks);
 
     // Sample one block and put the cell into it
-    const size_t gi = sample(indexes);
+    const size_t gi = random.sample(indexes);
     auto& sampled = blocks[gi];
 
     sampled.cells.push_back(i);
