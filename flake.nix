@@ -10,6 +10,7 @@
         pkgs = import nixpkgs { inherit system; };
         deps = with pkgs; [
           clang_14
+          llvmPackages_14.bintools
           gnumake
           cmake
         ];

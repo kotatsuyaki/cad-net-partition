@@ -20,6 +20,17 @@ include_directories(
   external/parallel-hashmap
 )
 
+# LTO
+include(CheckIPOSupported)
+check_ipo_supported(RESULT supported OUTPUT error)
+if( supported )
+  message(STATUS "LTO enabled")
+  set_property(TARGET pa2 PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+else()
+  message(STATUS "LTO not supported: ${error}")
+endif()
+
+
 # Linux-specific options
 if(NOT WIN32)
   add_compile_options(-Wall -Wextra)

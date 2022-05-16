@@ -2,7 +2,7 @@
 
 RM = rm
 CXX = /opt/rh/devtoolset-7/root/usr/bin/g++
-CXXFLAGS = -O3 -g -Wall -std=c++17
+CXXFLAGS = -O3 -g -Wall -std=c++17 -march=native
 
 TARGET = pa2
 SRC_DIRS = ./src
@@ -15,7 +15,8 @@ DEPS := $(OBJS:.o=.d)
 INC_DIRS := $(shell find ./external -type d -name include) ./external/parallel-hashmap
 INC_FLAGS := $(addprefix -I,$(INC_DIRS))
 
-CPPFLAGS ?= $(INC_FLAGS) -MMD -MP
+CPPFLAGS = $(INC_FLAGS) -MMD -MP
+LDFLAGS = -flto
 
 $(TARGET): $(OBJS)
 	$(CXX) $(LDFLAGS) $(OBJS) -o $@ $(LOADLIBES) $(LDLIBS)
