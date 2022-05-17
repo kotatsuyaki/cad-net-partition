@@ -20,6 +20,9 @@ struct Config {
 
   // Whether to verify partitions.
   bool verity_blocks = false;
+
+  // Allow k-way (k > 2) partitioning.
+  bool allow_kway = false;
 };
 
 #endif  // CONFIG_HPP_

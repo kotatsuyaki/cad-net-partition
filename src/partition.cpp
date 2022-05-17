@@ -13,6 +13,7 @@
 #include <limits>
 #include <list>
 #include <optional>
+#include <random>
 #include <vector>
 
 using gsl::narrow;
@@ -91,10 +92,17 @@ class BindData {
   vector<map<BlockId, int>> data;
 };
 
+// Movement of a single cell.
 struct Move {
-  CellId cell;
-  BlockId to_block;
+  CellId cell_id;
+  BlockId to_block_id;
 };
+
+bool operator==(const Move& a, const Move& b) noexcept {
+  return a.cell_id == b.cell_id && a.to_block_id == b.to_block_id;
+}
+
+bool operator!=(const Move& a, const Move& b) noexcept { return !(a == b); }
 
 using Gain = pair<int, int>;
 
@@ -139,15 +147,16 @@ class GainValues {
 // Table mapping gain vectors to moves.
 class GainTable {
  public:
-  using Entry = vector<pair<CellId, BlockId>>;
+  using Entry = vector<Move>;
 
   GainTable(size_t table_size, int p)
       : data(table_size * table_size),
         table_size(table_size),
         p(p),
         max_gain_it(data.crbegin()) {}
-  void add(Gain gain, CellId cell_id, BlockId to_block_id) {
-    data[to_index(gain)].emplace_back(cell_id, to_block_id);
+
+  void add(Gain gain, Move move) {
+    data[to_index(gain)].emplace_back(move);
 
     auto entry_it =
         std::next(data.crbegin(), gsl::narrow_cast<ptrdiff_t>(to_index(gain)));
@@ -156,9 +165,9 @@ class GainTable {
     }
   }
 
-  void remove(Gain gain, CellId cell_id, BlockId to_block_id) {
+  void remove(Gain gain, Move move) {
     Entry& entry = data[to_index(gain)];
-    const auto it = ranges::find(entry, std::make_pair(cell_id, to_block_id));
+    const auto it = ranges::find(entry, move);
     if (it != entry.end()) {
       entry.erase(it);
     }
@@ -258,55 +267,58 @@ class Cutter {
         }
 
         const Gain gain = gains[{cell_id, block_id}];
-        gain_table.add(gain, cell_id, block_id);
+        gain_table.add(gain, {cell_id, block_id});
       }
     }
   }
 
   std::vector<Move> perform_pass() {
-    const size_t min_moves = cell_locked.size() / 8;
+    const size_t ncells = cell_locked.size();
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<size_t> dist(ncells / 2, ncells);
+    const size_t max_moves = dist(gen);
 
     vector<Move> move_history;
-    vector<int> gain_history;
-    int current_gain = 0;
+    vector<Gain> gain_history;
+    Gain current_gain{0, 0};
 
     size_t count = 0;
     while (const auto move_opt = find_nextmove()) {
       const Move move = *move_opt;
-      const Gain gain = gains[{move.cell, move.to_block}];
+      const Gain gain = gains[move];
 
-      if (gain.first <= 0 && count >= min_moves) {
-        fmt::print("First-level gain = {} <= 0, aborting\n", gain.first);
-        break;
-      }
+      const BlockId to_block = move.to_block_id;
+      const BlockId from_block = block_of_cell[move.cell_id];
 
-      const BlockId to_block = move.to_block;
-      const BlockId from_block = block_of_cell[move.cell];
+      if (count > max_moves) break;
 
       if (config.debug_moves) {
         fmt::print(
             "[{}] Move cell {} from block {} to block {} (gain = ({}, {}))\n",
-            count, move.cell, from_block, to_block, gain.first, gain.second);
+            count, move.cell_id, from_block, to_block, gain.first, gain.second);
       }
       count += 1;
 
       perform_move(move);
 
       // Update block records
-      blocks[from_block].area -= area_of_cell[move.cell];
-      ranges::remove(blocks[from_block].cells, move.cell);
-      blocks[to_block].area += area_of_cell[move.cell];
-      blocks[to_block].cells.push_back(move.cell);
-      block_of_cell[move.cell] = to_block;
+      blocks[from_block].area -= area_of_cell[move.cell_id];
+      ranges::remove(blocks[from_block].cells, move.cell_id);
+      blocks[to_block].area += area_of_cell[move.cell_id];
+      blocks[to_block].cells.push_back(move.cell_id);
+      block_of_cell[move.cell_id] = to_block;
 
-      current_gain += gain.first;
+      current_gain.first += gain.first;
+      current_gain.second += gain.second;
       gain_history.emplace_back(current_gain);
       move_history.emplace_back(move);
     }
 
     // Return partial history up to best gain
-    const auto max_it =
-        ranges::max_element(gain_history, [](int a, int b) { return a <= b; });
+    const auto max_it = ranges::max_element(
+        gain_history,
+        [](const Gain& a, const Gain& b) { return a.first < b.first; });
     if (max_it != gain_history.end()) {
       const auto max_index = std::distance(gain_history.begin(), max_it);
       move_history.resize(max_index + 1);
@@ -328,10 +340,11 @@ class Cutter {
       ext_blocks[from_block].cells |= ranges::actions::remove(cell_id);
       ext_blocks[to_block].cells.push_back(cell_id);
 
-      // NOTE: Remove this
-      assert(ranges::none_of(
-          ext_blocks[from_block].cells,
-          [cell_id = cell_id](CellId id) { return id == cell_id; }));
+      if (config.debug_moves) {
+        assert(ranges::none_of(
+            ext_blocks[from_block].cells,
+            [cell_id = cell_id](CellId id) { return id == cell_id; }));
+      }
 
       block_of_cell[cell_id] = to_block;
     }
@@ -402,11 +415,12 @@ class Cutter {
     const BlockId from_block_id = block_of_cell[cell_id];
     if (from_block_id != to_block_id) {
       const int i = betap(net_id, to_block_id);
+      const Move move{cell_id, to_block_id};
 
       if constexpr (std::is_same_v<Mode, Normal>) {
-        increase_gain(cell_id, to_block_id, i);
+        increase_gain(move, i);
       } else {
-        decrease_gain(cell_id, to_block_id, i);
+        decrease_gain(move, i);
       }
     } else if (betap(net_id, to_block_id) < max_level) {
       const int i = betap(net_id, to_block_id) + 1;
@@ -415,34 +429,40 @@ class Cutter {
           continue;
         }
 
+        const Move move{cell_id, block_id};
         if constexpr (std::is_same_v<Mode, Normal>) {
-          decrease_gain(cell_id, block_id, i);
+          decrease_gain(move, i);
         } else {
-          increase_gain(cell_id, block_id, i);
+          increase_gain(move, i);
         }
       }
     }
   }
 
-  void increase_gain(CellId cell_id, BlockId to_block_id, size_t i) {
-    const Gain old_gain = gains[{cell_id, to_block_id}];
-    const Gain new_gain = gains.inc({cell_id, to_block_id}, i);
+  void increase_gain(Move move, size_t i) {
+    const Gain old_gain = gains[move];
+    const Gain new_gain = gains.inc(move, i);
 
-    gain_table.remove(old_gain, cell_id, to_block_id);
-    gain_table.add(new_gain, cell_id, to_block_id);
+    gain_table.remove(old_gain, move);
+    gain_table.add(new_gain, move);
   }
 
-  void decrease_gain(CellId cell_id, BlockId to_block_id, size_t i) {
-    const Gain old_gain = gains[{cell_id, to_block_id}];
-    const Gain new_gain = gains.dec({cell_id, to_block_id}, i);
+  void decrease_gain(Move move, size_t i) {
+    const Gain old_gain = gains[move];
+    const Gain new_gain = gains.dec(move, i);
 
-    gain_table.remove(old_gain, cell_id, to_block_id);
-    gain_table.add(new_gain, cell_id, to_block_id);
+    gain_table.remove(old_gain, move);
+    gain_table.add(new_gain, move);
   }
 
   optional<Move> find_nextmove() const {
     for (const auto& entry : gain_table) {
-      for (const auto& [cell_id, to_block_id] : entry) {
+      for (auto it = entry.crbegin(); it != entry.crend(); it++) {
+        const auto [cell_id, to_block_id] = *it;
+
+        const Gain gain = gains[{cell_id, to_block_id}];
+        if (gain.first + gain.second < 0) continue;
+
         // check if cell is locked
         if (cell_locked[cell_id]) {
           continue;
@@ -471,7 +491,7 @@ class Cutter {
     // Remove `cell_id`-related entries from gain structures
     for (const auto& [block_id, block] : blocks | enumerate) {
       const Gain gain = gains[{cell_id, block_id}];
-      gain_table.remove(gain, cell_id, to_block_id);
+      gain_table.remove(gain, {cell_id, to_block_id});
     }
 
     // For each net `net_id` connected to the moved cell,

@@ -21,6 +21,11 @@ Config::Config() {
     verity_blocks = true;
   }
 
+  if (std::getenv("PA2_ALLOW_KWAY")) {
+    fmt::print("PA2_ALLOW_KWAY is set\n");
+    allow_kway = true;
+  }
+
   if (auto cstr = std::getenv("PA2_PASS_ROUNDS")) {
     fmt::print("PA2_PASS_ROUNDS is set\n");
     std::string str{cstr};

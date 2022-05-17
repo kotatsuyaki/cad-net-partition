@@ -2,7 +2,7 @@
 
 RM = rm
 CXX = /opt/rh/devtoolset-7/root/usr/bin/g++
-CXXFLAGS = -O3 -Wall -std=c++17 -march=native
+CXXFLAGS = -O3 -Wall -Wno-unused -std=c++17 -march=native
 
 TARGET = pa2
 SRC_DIRS = ./src

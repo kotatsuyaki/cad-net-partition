@@ -1,4 +1,5 @@
 #include "cost.hpp"
+#include "data.hpp"
 
 #include <parallel_hashmap/phmap.h>
 #include <range/v3/all.hpp>
@@ -12,6 +13,7 @@ using ranges::views::transform;
 using std::vector;
 
 size_t find_cost(const vector<Block>& blocks, const InputData& inputs) {
+  auto block_of_cell = blocks_to_block_of_cell(blocks, inputs.ncells);
   vector<flat_hash_set<size_t>> spans(inputs.nnets);
 
   for (const auto& [block_id, block] : blocks | enumerate) {

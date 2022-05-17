@@ -17,11 +17,9 @@ using std::vector;
 
 namespace {
 
-constexpr int seed = 42;
-
 // Deterministic random sampler.
 struct Random {
-  Random() : gen(seed) {}
+  Random(int seed) : gen(seed) {}
 
   // Samples a vector element at random and returns by value.
   template <typename T>
@@ -54,7 +52,8 @@ vector<size_t> indexes_with_min_area(const vector<Block>& blocks) {
 optional<vector<Block>> find_starting_partition(const InputData& inputs,
                                                 size_t nblocks) {
   vector<Block> blocks(nblocks);
-  Random random{};
+  constexpr int seed = 42;
+  Random random{seed};
 
   for (size_t i = 0; i < inputs.ncells; i += 1) {
     const auto indexes = indexes_with_min_area(blocks);
@@ -91,7 +90,6 @@ size_t next_k(size_t k, size_t ncells) {
 // Finds an starting partition with unspecified (but legal) #blocks.
 // Throws if it is impossible to partition.
 vector<Block> find_starting_partition(const InputData& inputs) noexcept(false) {
-  // TODO: Find better strategy than "k += 1"
   for (size_t k = inputs.min_number_of_blocks(); k <= inputs.ncells;
        k = next_k(k, inputs.ncells)) {
     if (auto blocks = find_starting_partition(inputs, k)) {
