@@ -1,29 +1,34 @@
 #include "config.hpp"
+#include "cost.hpp"
+#include "data.hpp"
 #include "partition.hpp"
 
-#include <gsl/gsl>
+#include <fmt/chrono.h>
 #include <gsl/narrow>
 #include <parallel_hashmap/phmap.h>
 #include <range/v3/action/remove.hpp>
 #include <range/v3/all.hpp>
 
-#include <csignal>
-#include <deque>
-#include <iterator>
-#include <limits>
-#include <list>
-#include <optional>
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <random>
+#include <type_traits>
 #include <vector>
 
 using gsl::narrow;
+using gsl::narrow_cast;
+using ranges::to;
 using ranges::views::enumerate;
-using std::deque;
-using std::list;
-using std::nullopt;
-using std::optional;
-using std::pair;
+using ranges::views::transform;
 using std::vector;
+
+using namespace std::chrono_literals;
+using std::chrono::duration_cast;
+using std::chrono::seconds;
+using std::chrono::steady_clock;
 
 template <typename K, typename V>
 using map = phmap::flat_hash_map<K, V>;
@@ -32,536 +37,322 @@ template <typename T>
 using set = phmap::flat_hash_set<T>;
 
 namespace {
+struct Key {
+  BlockId block_id;
+  NetId net_id;
 
-constexpr size_t infty = std::numeric_limits<int>::max();
-constexpr int max_level = 2;
-
-// Storage for phi, lambda, and beta values.
-// Indexed by net and block.
-class BindData {
- public:
-  BindData(size_t nnets) : data(nnets) {}
-
-  int operator()(NetId net, BlockId block) const {
-    assert(net < data.size());
-
-    auto it = data[net].find(block);
-    // defaults to 0
-    if (it == data[net].end()) {
-      return 0;
-    }
-    return it->second;
+  friend size_t hash_value(const Key& key) {
+    return phmap::HashState().combine(0, key.block_id, key.net_id);
   }
-
-  // Increase value at (net, block) by 1.
-  // An unset value defaults to 0, so after the increment it becomes 1.
-  void inc(NetId net, BlockId block) {
-    assert(net < data.size());
-    if (data[net][block] == infty) {
-      return;
-    }
-    data[net][block] += 1;
-  }
-
-  void dec(NetId net, BlockId block) {
-    assert(net < data.size());
-    if (data[net][block] == infty) {
-      return;
-    }
-    data[net][block] -= 1;
-  }
-
-  // Returns number of changed infty values
-  [[nodiscard]] int set(NetId net, BlockId block, int value) {
-    assert(net < data.size());
-
-    const size_t old = data[net][block];
-    data[net][block] = value;
-
-    if (old != infty && value == infty) {
-      return 1;
-    }
-    if (old == infty && value != infty) {
-      return -1;
-    }
-    return 0;
-  }
-
- private:
-  // indexed by net, and then block
-  vector<map<BlockId, int>> data;
 };
 
-// Movement of a single cell.
-struct Move {
-  CellId cell_id;
-  BlockId to_block_id;
-};
-
-bool operator==(const Move& a, const Move& b) noexcept {
-  return a.cell_id == b.cell_id && a.to_block_id == b.to_block_id;
+bool operator==(Key a, Key b) noexcept {
+  return a.block_id == b.block_id && a.net_id == b.net_id;
 }
 
-bool operator!=(const Move& a, const Move& b) noexcept { return !(a == b); }
+template <typename T>
+constexpr T sqr(T t) noexcept {
+  return t * t;
+}
 
-using Gain = pair<int, int>;
-
-// Data structure mapping moves to gain vectors
-class GainValues {
+// Auto-adapting temperature factor that approaches `temp_limit` at time
+// `time_limit`.
+class TempFactor {
  public:
-  GainValues(size_t ncells, size_t nblocks)
-      : data(ncells * nblocks), ncells(ncells), nblocks(nblocks) {}
+  TempFactor(double init_temp_factor = config::default_init_temp_factor)
+      : temp_factor(init_temp_factor), last_update_time(steady_clock::now()) {}
 
-  Gain operator[](Move move) const { return data[to_index(move)]; }
+  // Gets the factor.
+  double operator()() const { return temp_factor; }
 
-  Gain inc(Move move, size_t level) {
-    update<1>(move, level);
-    return (*this)[move];
-  }
-
-  Gain dec(Move move, size_t level) {
-    update<-1>(move, level);
-    return (*this)[move];
-  }
-
- private:
-  // indexed by (CellId, BlockId)
-  vector<Gain> data;
-  size_t ncells, nblocks;
-
-  template <int diff>
-  void update(Move move, size_t level) {
-    if (level == 1) {
-      data[to_index(move)].first += diff;
-    } else if (level == 2) {
-      data[to_index(move)].second += diff;
-    }
-  }
-
-  size_t to_index(Move move) const {
-    const auto [cell_id, to_block_id] = move;
-    return cell_id * nblocks + to_block_id;
-  }
-};
-
-// Table mapping gain vectors to moves.
-class GainTable {
- public:
-  using Entry = vector<Move>;
-
-  GainTable(size_t table_size, int p)
-      : data(table_size * table_size),
-        table_size(table_size),
-        p(p),
-        max_gain_it(data.crbegin()) {}
-
-  void add(Gain gain, Move move) {
-    data[to_index(gain)].emplace_back(move);
-
-    auto entry_it =
-        std::next(data.crbegin(), gsl::narrow_cast<ptrdiff_t>(to_index(gain)));
-    if (entry_it < max_gain_it) {
-      max_gain_it = entry_it;
-    }
-  }
-
-  void remove(Gain gain, Move move) {
-    Entry& entry = data[to_index(gain)];
-    const auto it = ranges::find(entry, move);
-    if (it != entry.end()) {
-      entry.erase(it);
-    }
-
-    // Update max gain iterator if needed
-    auto entry_it =
-        std::next(data.crbegin(), gsl::narrow_cast<ptrdiff_t>(to_index(gain)));
-    if (entry_it == max_gain_it && entry.empty()) {
-      max_gain_it = search_down_max_gain();
-    }
-  }
-
-  // Iterates in descending order.
-  auto begin() const { return max_gain_it; }
-  auto end() const { return data.crend(); }
-
- private:
-  // indexed by (first level gain) * (2p + 1) + second level gain
-  vector<Entry> data;
-  size_t table_size;
-
-  // minimum gain scalar is -p
-  int p;
-
-  // Max gain in the table
-  decltype(data.crbegin()) max_gain_it;
-
-  // Find new max gain down from the current one
-  [[nodiscard]] decltype(data.crbegin()) search_down_max_gain() {
-    for (auto it = max_gain_it; it != data.crend(); it++) {
-      if (it->empty() == false) {
-        return it;
-      }
-    }
-    return data.crend();
-  }
-
-  size_t to_index(Gain gain) const {
-    auto [f, s] = gain;
-    f += p;
-    s += p;
-    return f * table_size + s;
-  }
-};
-
-enum class NetStatus : uint8_t { Free, Loose, Locked };
-
-class Cutter {
- public:
-  Cutter(const InputData& inputs, const vector<Block>& blocks)
-      : config(),
-        nets(inputs.nets),
-        phi(inputs.nnets),
-        lmd(inputs.nnets),
-        beta(inputs.nnets),
-        infty_count(inputs.nnets),
-        cells(inputs.cells),
-        block_of_cell(),
-        cell_locked(inputs.ncells),
-        area_of_cell(inputs.cell_areas),
-        blocks(blocks),
-        gains(inputs.ncells, blocks.size()),
-        gain_table(inputs.max_nets_per_cell * 2 + 1,
-                   gsl::narrow<int>(inputs.max_nets_per_cell)),
-        max_block_area(inputs.max_block_area) {
-    populate_block_of_cell();
-
-    // Init-partition 2)
-    for (const auto& [cell_id, cell] : cells | enumerate) {
-      const BlockId block_id = block_of_cell[cell_id];
-      for (const auto& [net_id, net] : cell | enumerate) {
-        phi.inc(net_id, block_id);
-        beta.inc(net_id, block_id);
-      }
-    }
-
-    // Init-partition 3)
-    for (const auto& [net_id, net] : nets | enumerate) {
-      for (const auto& [block_id, block] : blocks | enumerate) {
-        const bool betap_small = betap(net_id, block_id) <= max_level;
-        const bool beta_nz = beta(net_id, block_id) > 0;
-        if (betap_small && beta_nz) {
-          // update gain for all cells on net
-          for (const auto& [cell_id, cell] : net | enumerate) {
-            update_gain<Normal>(cell_id, block_id, net_id);
-          }
-        }
-      }
-    }
-
-    // Init-partition 4)
-    for (const auto& [cell_id, cell] : cells | enumerate) {
-      const BlockId cell_block_id = block_of_cell[cell_id];
-      for (const auto& [block_id, block] : blocks | enumerate) {
-        if (block_id == cell_block_id) {
-          continue;
-        }
-
-        const Gain gain = gains[{cell_id, block_id}];
-        gain_table.add(gain, {cell_id, block_id});
-      }
-    }
-  }
-
-  std::vector<Move> perform_pass() {
-    const size_t ncells = cell_locked.size();
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<size_t> dist(ncells / 2, ncells);
-    const size_t max_moves = dist(gen);
-
-    vector<Move> move_history;
-    vector<Gain> gain_history;
-    Gain current_gain{0, 0};
-
-    size_t count = 0;
-    while (const auto move_opt = find_nextmove()) {
-      const Move move = *move_opt;
-      const Gain gain = gains[move];
-
-      const BlockId to_block = move.to_block_id;
-      const BlockId from_block = block_of_cell[move.cell_id];
-
-      if (count > max_moves) break;
-
-      if (config.debug_moves) {
-        fmt::print(
-            "[{}] Move cell {} from block {} to block {} (gain = ({}, {}))\n",
-            count, move.cell_id, from_block, to_block, gain.first, gain.second);
-      }
-      count += 1;
-
-      perform_move(move);
-
-      // Update block records
-      blocks[from_block].area -= area_of_cell[move.cell_id];
-      ranges::remove(blocks[from_block].cells, move.cell_id);
-      blocks[to_block].area += area_of_cell[move.cell_id];
-      blocks[to_block].cells.push_back(move.cell_id);
-      block_of_cell[move.cell_id] = to_block;
-
-      current_gain.first += gain.first;
-      current_gain.second += gain.second;
-      gain_history.emplace_back(current_gain);
-      move_history.emplace_back(move);
-    }
-
-    // Return partial history up to best gain
-    const auto max_it = ranges::max_element(
-        gain_history,
-        [](const Gain& a, const Gain& b) { return a.first < b.first; });
-    if (max_it != gain_history.end()) {
-      const auto max_index = std::distance(gain_history.begin(), max_it);
-      move_history.resize(max_index + 1);
-    }
-    return move_history;
-  }
-
-  void replay(vector<Block>& ext_blocks, const vector<Move>& moves) const {
-    fmt::print("Replaying {} moves\n", moves.size());
-    auto block_of_cell =
-        blocks_to_block_of_cell(ext_blocks, cell_locked.size());
-
-    for (const auto [cell_id, to_block] : moves) {
-      const BlockId from_block = block_of_cell[cell_id];
-
-      ext_blocks[from_block].area -= area_of_cell[cell_id];
-      ext_blocks[to_block].area += area_of_cell[cell_id];
-
-      ext_blocks[from_block].cells |= ranges::actions::remove(cell_id);
-      ext_blocks[to_block].cells.push_back(cell_id);
-
-      if (config.debug_moves) {
-        assert(ranges::none_of(
-            ext_blocks[from_block].cells,
-            [cell_id = cell_id](CellId id) { return id == cell_id; }));
-      }
-
-      block_of_cell[cell_id] = to_block;
-    }
-  }
-
- private:
-  Config config;
-
-  // data indexed by net
-  vector<Net> nets;
-  BindData phi, lmd, beta;
-  vector<int> infty_count;
-
-  // data indexed by cell
-  vector<Cell> cells;
-  vector<BlockId> block_of_cell;
-  vector<bool> cell_locked;
-  vector<size_t> area_of_cell;
-
-  // data indexed by block
-  vector<Block> blocks;
-
-  // gain structures
-  GainValues gains;
-  GainTable gain_table;
-
-  size_t max_block_area;
-
-  int betap(NetId net, BlockId block) const {
-    const int net_size = narrow<int>(nets[net].size());
-    switch (net_status(net)) {
-      case NetStatus::Free:
-        return net_size - phi(net, block);
-      case NetStatus::Locked:
-        return infty;
-      case NetStatus::Loose:
-        return net_size - phi(net, block) - lmd(net, block);
-      default:
-        throw std::runtime_error("Got illegal NetStatus value");
-    }
-  }
-
-  NetStatus net_status(NetId net_id) const {
-    const auto count = infty_count[net_id];
-    assert(count >= 0);
-    if (count == 0) {
-      return NetStatus::Free;
-    } else if (count == 1) {
-      return NetStatus::Loose;
-    } else {
-      return NetStatus::Locked;
-    }
-  }
-
-  void populate_block_of_cell() {
-    block_of_cell = blocks_to_block_of_cell(blocks, cell_locked.size());
-  }
-
-  struct Normal;
-  struct Reverse;
-
-  template <typename Mode>
-  void update_gain(CellId cell_id, BlockId to_block_id, NetId net_id) {
-    if (cell_locked[cell_id]) {
+  // Updates the factor. This should be called every time when a pass is
+  // performed.
+  void update(steady_clock::time_point begin_time, double current_temp) {
+    passes += 1;
+    const bool should_update = steady_clock::now() - last_update_time >
+                               config::temp_factor_update_interval;
+    if (should_update == false) {
       return;
     }
 
+    const auto remaining_time =
+        config::time_limit - (steady_clock::now() - begin_time);
+    const double remain_secs =
+        static_cast<double>(duration_cast<seconds>(remaining_time).count());
+    const double passes_per_sec = static_cast<double>(passes) / 10.0;
+
+    temp_factor = std::pow(config::temp_limit / current_temp,
+                           1.0 / (remain_secs * passes_per_sec));
+
+    // Correct factor if it goes crazy
+    if (temp_factor <= 0.0) {
+      temp_factor = config::default_init_temp_factor;
+    }
+
+    passes = 0;
+    last_update_time = steady_clock::now();
+  }
+
+ private:
+  double temp_factor;
+
+  steady_clock::time_point last_update_time;
+  int64_t passes = 0;
+};
+
+// Random generator supplying random numbers for `SimAnneal`.
+class Random {
+ public:
+  Random(size_t ncells, size_t nblocks)
+      : rd(),
+        gen(rd()),
+        cell_id_gen(0, ncells - 1),
+        block_id_gen(0, nblocks - 1),
+        zero_one_gen(0.0, 1.0) {}
+  CellId cell_id() { return cell_id_gen(gen); }
+  BlockId block_id() { return block_id_gen(gen); }
+  double zero_to_one() { return zero_one_gen(gen); }
+
+ private:
+  std::random_device rd;
+  std::mt19937 gen;
+  std::uniform_int_distribution<CellId> cell_id_gen;
+  std::uniform_int_distribution<BlockId> block_id_gen;
+  std::uniform_real_distribution<double> zero_one_gen;
+};
+
+class SimAnneal {
+ public:
+  SimAnneal(const std::vector<Block>& blocks, const InputData& inputs,
+            Cost init_cost, double init_temp = config::default_init_temp)
+      : blocks(blocks),
+        cost(init_cost),
+        temp(init_temp),
+        temp_factor(),
+        random(inputs.ncells, blocks.size()),
+        begin_time(steady_clock::now()) {
+    block_of_cell = blocks_to_block_of_cell(blocks, inputs.ncells);
+    populate_span_of_net(inputs);
+    populate_bindings(inputs);
+  }
+
+  bool should_terminate() const {
+    const bool is_time_over =
+        (steady_clock::now() - begin_time) > config::time_limit;
+    return is_time_over;
+  }
+
+  enum class PassStatus {
+    Success,
+    Abort,
+    Downhill,
+  };
+
+  struct PassResult {
+    PassStatus status;
+    Cost cost;
+    Cost cost_delta;
+    double temp;
+    double temp_factor;
+  };
+
+  PassResult perform_pass(const InputData& inputs) {
+    const CellId cell_id = random.cell_id();
     const BlockId from_block_id = block_of_cell[cell_id];
-    if (from_block_id != to_block_id) {
-      const int i = betap(net_id, to_block_id);
-      const Move move{cell_id, to_block_id};
+    const BlockId to_block_id = random.block_id();
 
-      if constexpr (std::is_same_v<Mode, Normal>) {
-        increase_gain(move, i);
-      } else {
-        decrease_gain(move, i);
+    const bool legal = blocks[to_block_id].area + inputs.cell_areas[cell_id] <=
+                       inputs.max_block_area;
+    const bool is_not_move = from_block_id == to_block_id;
+    if (legal == false || is_not_move == true) {
+      return {PassStatus::Abort, 0, 0, temp, temp_factor()};
+    }
+
+    // Calculate change in cost
+    Cost cost_delta = 0;
+    for (const NetId net_id : inputs.cells[cell_id]) {
+      int span_delta = 0;
+      if (bindings[{from_block_id, net_id}] == 1) {
+        // after moving cell away, net will no longer be spanning the block
+        span_delta -= 1;
       }
-    } else if (betap(net_id, to_block_id) < max_level) {
-      const int i = betap(net_id, to_block_id) + 1;
-      for (const auto& [block_id, block] : blocks | enumerate) {
-        if (block_id == from_block_id) {
-          continue;
-        }
 
-        const Move move{cell_id, block_id};
-        if constexpr (std::is_same_v<Mode, Normal>) {
-          decrease_gain(move, i);
-        } else {
-          increase_gain(move, i);
-        }
+      if (bindings[{to_block_id, net_id}] == 0) {
+        // after moving cell in, net will now be (newly) spanning the block
+        span_delta += 1;
+      }
+
+      const Cost old_span = span_of_net[net_id];
+      const Cost new_span = old_span + span_delta;
+
+      cost_delta += sqr(new_span - 1) - sqr(old_span - 1);
+    }
+
+    // determine to accept or reject
+    const bool is_downhill = cost_delta < 0;
+    std::uniform_real_distribution<double> rand_gen(0.0, 1.0);
+    const bool is_rand_accept =
+        random.zero_to_one() <=
+        std::exp(narrow_cast<double>(-cost_delta) / temp);
+
+    if (is_downhill == false && is_rand_accept == false) {
+      return {PassStatus::Downhill, 0, cost_delta, temp, temp_factor()};
+    }
+
+    // accepted; update records
+    cost += cost_delta;
+
+    for (const NetId net_id : inputs.cells[cell_id]) {
+      int span_delta = 0;
+      if (bindings[{from_block_id, net_id}] == 1) {
+        // after moving cell away, net will no longer be spanning the block
+        span_delta -= 1;
+      }
+      bindings[{from_block_id, net_id}] -= 1;
+
+      if (bindings[{to_block_id, net_id}] == 0) {
+        // after moving cell in, net will now be (newly) spanning the block
+        span_delta += 1;
+      }
+      bindings[{to_block_id, net_id}] += 1;
+
+      if (span_delta != 0) {
+        const Cost old_span = span_of_net[net_id];
+        const Cost new_span = old_span + span_delta;
+        span_of_net[net_id] = new_span;
       }
     }
+
+    // Move the cell
+    block_of_cell[cell_id] = to_block_id;
+    blocks[from_block_id].cells |= ranges::actions::remove(cell_id);
+    blocks[from_block_id].area -= inputs.cell_areas[cell_id];
+    blocks[to_block_id].cells.emplace_back(cell_id);
+    blocks[to_block_id].area += inputs.cell_areas[cell_id];
+
+    // Update and clamp temperature
+    temp *= temp_factor();
+    temp = std::clamp(temp, config::temp_limit, config::temp_limit_top);
+
+    temp_factor.update(begin_time, temp);
+
+    return PassResult{PassStatus::Success, cost, cost_delta, temp,
+                      temp_factor()};
   }
 
-  void increase_gain(Move move, size_t i) {
-    const Gain old_gain = gains[move];
-    const Gain new_gain = gains.inc(move, i);
+  // Gets the resulting blocks and destroys it.
+  // It is not allowed to do anything with this instance of `SimAnneal` after
+  // calling this method.
+  vector<Block> into_blocks() { return std::move(blocks); }
 
-    gain_table.remove(old_gain, move);
-    gain_table.add(new_gain, move);
-  }
+ private:
+  vector<Block> blocks;
 
-  void decrease_gain(Move move, size_t i) {
-    const Gain old_gain = gains[move];
-    const Gain new_gain = gains.dec(move, i);
+  // (BlockId, NetId) -> Int
+  map<Key, size_t> bindings;
 
-    gain_table.remove(old_gain, move);
-    gain_table.add(new_gain, move);
-  }
+  // CellId -> BlockId
+  vector<BlockId> block_of_cell;
 
-  optional<Move> find_nextmove() const {
-    for (const auto& entry : gain_table) {
-      for (auto it = entry.crbegin(); it != entry.crend(); it++) {
-        const auto [cell_id, to_block_id] = *it;
+  // NetId -> Int (#blocks spanned by net)
+  vector<Cost> span_of_net;
 
-        const Gain gain = gains[{cell_id, to_block_id}];
-        if (gain.first + gain.second < 0) continue;
+  Cost cost;
+  double temp;
+  TempFactor temp_factor;
+  Random random;
 
-        // check if cell is locked
-        if (cell_locked[cell_id]) {
-          continue;
-        }
+  steady_clock::time_point begin_time;
 
-        // check if moving cell to block is viable
-        const size_t area_after_move =
-            blocks[to_block_id].area + area_of_cell[cell_id];
-        if (area_after_move > max_block_area) {
-          continue;
-        }
-
-        return Move{cell_id, to_block_id};
-      }
-    }
-    return nullopt;
-  }
-
-  void perform_move(Move move) {
-    const auto [cell_id, to_block_id] = move;
-    const BlockId from_block_id = block_of_cell[cell_id];
-
-    // Set cell to be locked
-    cell_locked[cell_id] = true;
-
-    // Remove `cell_id`-related entries from gain structures
+  void populate_span_of_net(const InputData& inputs) {
+    vector<set<BlockId>> blocks_of_net(inputs.nnets);
     for (const auto& [block_id, block] : blocks | enumerate) {
-      const Gain gain = gains[{cell_id, block_id}];
-      gain_table.remove(gain, {cell_id, to_block_id});
-    }
-
-    // For each net `net_id` connected to the moved cell,
-    // consider free cells under the same net.
-    Cell& cell = cells[cell_id];
-    for (const NetId net_id : cell) {
-      // pre update
-      for (const auto& [block_id, nei_block] : blocks | enumerate) {
-        const bool betap_small = betap(net_id, block_id) <= max_level;
-        const bool beta_nz = beta(net_id, block_id);
-
-        if (betap_small && beta_nz) {
-          const Net& net = nets[net_id];
-          for (const CellId nei_cell_id : net) {
-            if (nei_cell_id == cell_id) {
-              continue;
-            }
-
-            update_gain<Reverse>(nei_cell_id, block_id, net_id);
-          }
+      for (const CellId cell_id : block.cells) {
+        for (const NetId net_id : inputs.cells.at(cell_id)) {
+          blocks_of_net.at(net_id).insert(block_id);
         }
       }
+    }
 
-      // update binding numbers
-      phi.dec(net_id, from_block_id);
-      lmd.inc(net_id, to_block_id);
-      if (lmd(net_id, from_block_id) == 0) {
-        infty_count[net_id] +=
-            beta.set(net_id, from_block_id, phi(net_id, from_block_id));
-      } else {
-        infty_count[net_id] += beta.set(net_id, from_block_id, infty);
-      }
+    // Transform blocks_of_net to span sizes
+    span_of_net = blocks_of_net | transform([](const set<BlockId>& bs) {
+                    return narrow<Cost>(bs.size());
+                  }) |
+                  to<vector<Cost>>();
+  }
 
-      if (lmd(net_id, to_block_id) == 0) {
-        infty_count[net_id] +=
-            beta.set(net_id, to_block_id, phi(net_id, to_block_id));
-      } else {
-        infty_count[net_id] += beta.set(net_id, to_block_id, infty);
-      }
-
-      // post update
-      const bool betap_small = betap(net_id, to_block_id) <= max_level;
-      const bool beta_nz = beta(net_id, to_block_id) > 0;
-      if (betap_small && beta_nz) {
-        const Net& net = nets[net_id];
-        for (const CellId nei_cell_id : net) {
-          if (nei_cell_id == cell_id) {
-            continue;
-          }
-          if (cell_locked[nei_cell_id]) {
-            continue;
-          }
-
-          update_gain<Normal>(nei_cell_id, to_block_id, net_id);
+  void populate_bindings(const InputData& inputs) {
+    for (const auto& [block_id, block] : blocks | enumerate) {
+      for (const CellId cell_id : block.cells) {
+        const auto& cell = inputs.cells[cell_id];
+        for (const NetId net_id : cell) {
+          bindings[{block_id, net_id}] += 1;
         }
       }
     }
   }
+};
+
+class ProgressReporter {
+ public:
+  ProgressReporter(Cost init_cost)
+      : last_update_time(steady_clock::now()),
+        begin_time(steady_clock::now()),
+        init_cost(init_cost) {}
+
+  // Updates value stored in the reporter.
+  // If elapsed time since last print is long enough, print out info.
+  void update(const SimAnneal::PassResult& res) {
+    if (res.status == SimAnneal::PassStatus::Success) {
+      num_success += 1;
+    }
+
+    const bool is_time_to_print =
+        steady_clock::now() - last_update_time > config::report_interval;
+    if (is_time_to_print == false) {
+      return;
+    }
+
+    const double pass_per_sec =
+        static_cast<double>(num_success) /
+        static_cast<double>(
+            duration_cast<seconds>(config::report_interval).count());
+    const double opt_rate =
+        static_cast<double>(res.cost) / static_cast<double>(init_cost) * 100.0;
+    fmt::print(
+        "Cost {:>10}  |  Opt {:<7.3}%  |  Elapsed {:%H:%M:%S}  |  Temp "
+        "{:<12.10}  |  TempFactor "
+        "{:<12.9}  |  PassPerSec {:<12}\n",
+        res.cost, opt_rate, steady_clock::now() - begin_time, res.temp,
+        res.temp_factor, pass_per_sec);
+    fflush(stdout);
+
+    last_update_time = steady_clock::now();
+    num_success = 0;
+  }
+
+ private:
+  steady_clock::time_point last_update_time;
+  steady_clock::time_point begin_time;
+  int64_t num_success = 0;
+  Cost init_cost;
 };
 
 }  // namespace
 
-vector<Block> perform_pass(const vector<Block>& blocks,
-                           const InputData& inputs) {
-  Cutter cutter(inputs, blocks);
+std::vector<Block> perform_sa_partition(const std::vector<Block>& blocks,
+                                        const InputData& inputs,
+                                        Cost init_cost) {
+  SimAnneal sim_anneal{blocks, inputs, init_cost};
+  ProgressReporter reporter{init_cost};
 
-  const auto moves = cutter.perform_pass();
-  fmt::print("Got {} moves from cutter\n", moves.size());
+  while (sim_anneal.should_terminate() == false) {
+    const auto res = sim_anneal.perform_pass(inputs);
+    if (res.status == SimAnneal::PassStatus::Success) {
+      reporter.update(res);
+    }
+  }
 
-  auto new_blocks(blocks);
-  cutter.replay(new_blocks, moves);
-  return new_blocks;
+  const auto optimized_blocks = sim_anneal.into_blocks();
+  return optimized_blocks;
 }

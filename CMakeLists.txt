@@ -8,7 +8,6 @@ add_executable(
     ./src/data.cpp
     ./src/main.cpp
     ./src/partition.cpp
-    ./src/sa.cpp
     ./src/starting_partition.cpp
 )
 set_property(TARGET pa2 PROPERTY CXX_STANDARD 17)

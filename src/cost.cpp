@@ -12,7 +12,7 @@ using ranges::views::enumerate;
 using ranges::views::transform;
 using std::vector;
 
-size_t find_cost(const vector<Block>& blocks, const InputData& inputs) {
+Cost find_cost(const vector<Block>& blocks, const InputData& inputs) {
   auto block_of_cell = blocks_to_block_of_cell(blocks, inputs.ncells);
   vector<flat_hash_set<size_t>> spans(inputs.nnets);
 

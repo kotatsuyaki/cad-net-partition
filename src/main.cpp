@@ -2,7 +2,6 @@
 #include "cost.hpp"
 #include "data.hpp"
 #include "partition.hpp"
-#include "sa.hpp"
 #include "starting_partition.hpp"
 
 #include <limits>
@@ -36,64 +35,30 @@ int main(int argc, char** argv) try {
 
   // Read input and find starting partitioning
   const InputData inputs = InputData::read_from(infile);
-  vector<Block> blocks = find_starting_partition(inputs);
+  const auto starting_blocks = find_starting_partition(inputs);
+  const auto starting_cost = find_cost(starting_blocks, inputs);
 
+  fmt::print("Cost of starting partition = {}\n", starting_cost);
   if (config.debug_inputs) {
-    debug_print_inputs(inputs, blocks);
+    debug_print_inputs(inputs, starting_blocks);
   }
 
-  // Record best partitioning so far
-  auto best_blocks(blocks);
-  auto best_cost = find_cost(blocks, inputs);
-
-  fmt::print("Cost of starting partition = {}\n", best_cost);
-
-  if (false) {
-    // if (blocks.size() == 2 || config.allow_kway) {
-    // Bail after fixed number of useless moves
-    constexpr int bad_rounds_limit = 10;
-
-    int bad_rounds = 0;
-    while (bad_rounds < bad_rounds_limit) {
-      const auto new_blocks = perform_pass(blocks, inputs);
-      const auto cost = find_cost(new_blocks, inputs);
-
-      if (config.verity_blocks) {
-        verify_blocks(new_blocks, inputs.ncells);
-      }
-
-      fmt::print("Cost of new partition = {}\n", cost);
-      blocks = new_blocks;
-
-      if (cost < best_cost) {
-        // Update best cost and reset bad rounds counter
-        bad_rounds = 0;
-        best_cost = cost;
-        best_blocks = std::move(new_blocks);
-      } else {
-        // Increase bad rounds counter
-        bad_rounds += 1;
-        fmt::print("{} bad rounds\n", bad_rounds);
-      }
-      fmt::print("best = {}\n", best_cost);
-    }
-  } else {
-    fmt::print("Multi-way optimization by Sanchis method disabled\n");
-    best_blocks = perform_sa_partition(blocks, inputs);
-    best_cost = find_cost(best_blocks, inputs);
-    fmt::print("Cost after SA = {}\n", best_cost);
-  }
+  // Optimize
+  const auto optimized_blocks =
+      perform_sa_partition(starting_blocks, inputs, starting_cost);
+  const auto optimized_cost = find_cost(optimized_blocks, inputs);
+  fmt::print("Cost after SA = {}\n", optimized_cost);
 
   // Optionally verify the answer
   if (config.verity_blocks) {
-    verify_blocks(best_blocks, inputs.ncells);
+    verify_blocks(optimized_blocks, inputs.ncells);
   }
 
   // Write output
   ofstream outfile(argv[2]);  // NOLINT
 
-  fmt::print("Writing output\n");
-  write_blocks(outfile, best_cost, best_blocks, inputs);
+  fmt::print("Writing output to file {}\n", argv[2]);  // NOLINT
+  write_blocks(outfile, optimized_cost, optimized_blocks, inputs);
   outfile.flush();
   outfile.close();
 

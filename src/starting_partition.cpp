@@ -75,7 +75,7 @@ optional<vector<Block>> find_starting_partition(const InputData& inputs,
 }
 
 size_t next_k(size_t k, size_t ncells) {
-  constexpr double growth = 1.1;
+  constexpr double growth = 1.01;
 
   size_t k1 = static_cast<size_t>(static_cast<double>(k) * growth);
   size_t k2 = k + 1;

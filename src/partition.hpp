@@ -1,11 +1,14 @@
-#ifndef PARTITION_HPP_
-#define PARTITION_HPP_
+#ifndef SA_HPP_
+#define SA_HPP_
 
 #include "data.hpp"
 
 #include <vector>
 
-std::vector<Block> perform_pass(const std::vector<Block>& blocks,
-                                const InputData& inputs);
+using Cost = std::int64_t;
 
-#endif  // PARTITION_HPP_
+std::vector<Block> perform_sa_partition(const std::vector<Block>& blocks,
+                                        const InputData& inputs,
+                                        Cost init_cost);
+
+#endif  // SA_HPP_
