@@ -14,3 +14,5 @@ out
 build
 
 callgrind*
+
+*.pdf
