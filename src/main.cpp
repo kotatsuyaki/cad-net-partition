@@ -2,6 +2,7 @@
 #include "cost.hpp"
 #include "data.hpp"
 #include "partition.hpp"
+#include "sa.hpp"
 #include "starting_partition.hpp"
 
 #include <limits>
@@ -47,7 +48,8 @@ int main(int argc, char** argv) try {
 
   fmt::print("Cost of starting partition = {}\n", best_cost);
 
-  if (blocks.size() == 2 || config.allow_kway) {
+  if (false) {
+    // if (blocks.size() == 2 || config.allow_kway) {
     // Bail after fixed number of useless moves
     constexpr int bad_rounds_limit = 10;
 
@@ -76,7 +78,10 @@ int main(int argc, char** argv) try {
       fmt::print("best = {}\n", best_cost);
     }
   } else {
-    fmt::print("Multi-way optimization disabled\n");
+    fmt::print("Multi-way optimization by Sanchis method disabled\n");
+    best_blocks = perform_sa_partition(blocks, inputs);
+    best_cost = find_cost(best_blocks, inputs);
+    fmt::print("Cost after SA = {}\n", best_cost);
   }
 
   // Optionally verify the answer

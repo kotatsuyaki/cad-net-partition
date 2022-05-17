@@ -60,6 +60,8 @@ struct fmt::formatter<InputData> {
 };
 
 struct Block {
+  Block() : cells() {}
+
   // Total area of the block
   size_t area = 0;
 
