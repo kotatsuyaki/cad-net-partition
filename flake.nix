@@ -29,12 +29,31 @@
             cp pa2 $out/bin/cad-pa-2
           '';
         };
+        doc-deps = with pkgs; [
+          texlive.combined.scheme-full
+          pandoc
+          librsvg
+        ];
+        fonts-conf = pkgs.makeFontsConf {
+          fontDirectories = [ pkgs.source-han-serif ];
+        };
       in
       {
-        packages.cad = cad;
         defaultPackage = self.packages."${system}".cad;
+        packages.cad = cad;
+        packages.docs = pkgs.stdenv.mkDerivation {
+          name = "main.pdf";
+          src = ./docs;
+          buildInputs = doc-deps;
+          buildPhase = "make";
+          installPhase = ''
+            mkdir -p $out
+            cp main.pdf $out
+          '';
+          FONTCONFIG_FILE = fonts-conf;
+        };
         devShell = with pkgs; mkShell {
-          buildInputs = deps ++ dev-deps;
+          buildInputs = deps ++ dev-deps ++ doc-deps;
           CMAKE_EXPORT_COMPILE_COMMANDS = "yes";
         };
       });
