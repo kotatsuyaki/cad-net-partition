@@ -145,7 +145,7 @@ class SimAnneal {
   enum class PassStatus {
     Success,
     Abort,
-    Downhill,
+    UphillReject,
   };
 
   struct PassResult {
@@ -196,7 +196,7 @@ class SimAnneal {
         std::exp(narrow_cast<double>(-cost_delta) / temp);
 
     if (is_downhill == false && is_rand_accept == false) {
-      return {PassStatus::Downhill, 0, cost_delta, temp, temp_factor()};
+      return {PassStatus::UphillReject, 0, cost_delta, temp, temp_factor()};
     }
 
     // accepted; update records
