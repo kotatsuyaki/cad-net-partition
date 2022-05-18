@@ -14,10 +14,10 @@ set_property(TARGET pa2 PROPERTY CXX_STANDARD 17)
 
 # External libs
 include_directories(
-  external/GSL/include
-  external/fmt/include
-  external/range-v3/include
-  external/parallel-hashmap
+  ./src/external/GSL/include
+  ./src/external/fmt/include
+  ./src/external/range-v3/include
+  ./src/external/parallel-hashmap
 )
 
 # LTO

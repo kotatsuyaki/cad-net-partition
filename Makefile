@@ -5,14 +5,14 @@ CXX = /opt/rh/devtoolset-7/root/usr/bin/g++
 CXXFLAGS = -O3 -Wall -Wno-unused -std=c++17 -march=native
 
 TARGET = pa2
-SRC_DIRS = ./src
+SRC_DIR = ./src
 
-SRCS := $(shell find $(SRC_DIRS) -name *.cpp)
+SRCS := $(wildcard $(SRC_DIR)/*.cpp)
 OBJS := $(addsuffix .o,$(basename $(SRCS)))
 DEPS := $(OBJS:.o=.d)
 
 # Add all subdirectories with name "include" in ./external to include path
-INC_DIRS := $(shell find ./external -type d -name include) ./external/parallel-hashmap
+INC_DIRS := $(shell find ./src/external -type d -name include) ./src/external/parallel-hashmap
 INC_FLAGS := $(addprefix -I,$(INC_DIRS))
 
 CPPFLAGS = $(INC_FLAGS) -MMD -MP
