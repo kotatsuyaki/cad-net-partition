@@ -959,8 +959,8 @@ $endif$
 $else$
 $if(maketitle)$
 \vspace*{-1\baselineskip}
-{\LARGE \textbf{\thetitle}}\hfill{\large \theauthor}\\[0.5\baselineskip]
-{\color{gray}\Large $subtitle$}
+{\LARGE \textbf{\thetitle}}\\[0.5\baselineskip]
+{\color{gray}\Large $subtitle$\hfill{\large \theauthor}}
 \vspace{-0.5\baselineskip}
 $endif$
 $endif$
