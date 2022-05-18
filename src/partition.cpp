@@ -321,8 +321,8 @@ class ProgressReporter {
         static_cast<double>(res.cost) / static_cast<double>(init_cost) * 100.0;
     fmt::print(
         "Cost {:>10}  |  Opt {:<7.3}%  |  Elapsed {:%H:%M:%S}  |  Temp "
-        "{:<12.10}  |  TempFactor "
-        "{:<12.9}  |  PassPerSec {:<12}\n",
+        "{:<12.9}  |  TempFactor "
+        "{:<12.9}  |  PassPerSec {:<12.9}\n",
         res.cost, opt_rate, steady_clock::now() - begin_time, res.temp,
         res.temp_factor, pass_per_sec);
     fflush(stdout);
