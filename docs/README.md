@@ -1,5 +1,7 @@
 <!-- vim: set ft=markdown.pandoc colorcolumn=100: -->
 
+**Moved to Codeberg at https://codeberg.org/kotatsuyaki/cad-net-partition**
+
 # Build and Run
 
 This project can be built with GNU Make.
